@@ -125,7 +125,7 @@ public class Translator extends Thread {
     //Finds the player name in the chat using regex groups
     @SuppressWarnings("ResultOfMethodCallIgnored")
     private String findPlayerName(String message, int regexIndex) {
-        Pattern pattern = Pattern.compile(ConfigManager.INSTANCE.getRegexList().get(regexIndex));
+        Pattern pattern = ConfigManager.INSTANCE.getCompiledRegexList().get(regexIndex);
         Matcher matcher = pattern.matcher(message);
         matcher.find();
         return matcher.group(ConfigManager.INSTANCE.getGroupList().get(regexIndex));
@@ -215,20 +215,17 @@ public class Translator extends Thread {
         //Replace section signs one more time for the sake of bugs. Thanks Java.
         String messageTrim = message.replaceAll("\u00A7(.)", "");
         String headerMatch = null;
-        for (String regex : ConfigManager.INSTANCE.getRegexList()) {
-            String regexFixed = regex;
-            if (!regex.contains("^"))
-                regexFixed = "^" + regex;
-            Pattern pattern = Pattern.compile(regexFixed);
+        List<Pattern> compiledList = ConfigManager.INSTANCE.getCompiledRegexList();
+        for (int i = 0; i < compiledList.size(); i++) {
+            Pattern pattern = compiledList.get(i);
             Matcher matcher = pattern.matcher(messageTrim);
             if (matcher.find()) {
                 if (headerMatch == null) {
                     headerMatch = matcher.group(0);
-                    //There should be no duplicates in the list. This should be fine.
-                    regexIndex = ConfigManager.INSTANCE.getRegexList().indexOf(regex);
+                    regexIndex = i;
                 } else if (headerMatch.length() < matcher.group(0).length()) {
                     headerMatch = matcher.group(0);
-                    regexIndex = ConfigManager.INSTANCE.getRegexList().indexOf(regex);
+                    regexIndex = i;
                 }
             }
         }
@@ -239,7 +236,7 @@ public class Translator extends Thread {
         //If the player name cannot be found, chances are it's not a chat message
         if (sender == null)
             return;
-        Pattern pattern = Pattern.compile(ConfigManager.INSTANCE.getRegexList().get(regexIndex));
+        Pattern pattern = ConfigManager.INSTANCE.getCompiledRegexList().get(regexIndex);
         Matcher matcher = pattern.matcher(messageTrim);
         matcher.find();
         //Remove the chat header to get the actual content

@@ -37,6 +37,7 @@ public class ConfigManager {
     public static final ConfigManager INSTANCE = new ConfigManager();
     public static final String[] defaultRegex = {
             "<(\\w+)> ", //Default
+            " ?\\[\\d+\\](?: \\S+)? \\[[A-Za-z+]+\\] (\\w+)(?: \\S+)?: ", //Fakepixel
             "\\(From (\\w+)\\):( )?", //PM
             "(\\w+) whispers ", //PM
             "(\\[\\S+\\]( )?){0,2}(\\w+)( )?\u00BB( )?", //The Hive, etc.
@@ -55,8 +56,10 @@ public class ConfigManager {
             "(\\w+) tells you: ", //Frostcraft PM
             "\\[(\\w+) -> \\w+\\] ", //Default Bukkit PM? Essential?
             "(\\w+ )?(\\w+-)?(\\w+)(\\*)?(\\+){0,2}:", //Mineyourmind(Specifically the forum members). Thanks for the shout out!
+
     };
     public static final int[] defaultGroups = {
+            1,
             1,
             1,
             1,
@@ -94,8 +97,13 @@ public class ConfigManager {
     private String googleKey;
     private String baiduKey;
     private String baiduAppId;
+    private List<Pattern> compiledRegexList;
 
     private ConfigManager() {
+    }
+
+    public List<Pattern> getCompiledRegexList() {
+        return compiledRegexList;
     }
 
     public void init(FMLPreInitializationEvent e) {
@@ -108,9 +116,7 @@ public class ConfigManager {
     public void syncConfig() {
         config.load();
         versionCheck();
-        //I always hate how forge sets up their configurations.
-        //Seriously, why would you need to retype everything just for accessing properties?
-        //What happened to simple getters and setters?
+
         targetLanguage = LangManager.getInstance().findLanguageFromName(config.getString("targetLanguage", Configuration.CATEGORY_GENERAL, "English", "Target language to translate for the chat"));
         selfLanguage = LangManager.getInstance().findLanguageFromName(config.getString("selfLanguage", Configuration.CATEGORY_GENERAL, "English", "The language the user types"));
         speakAsLanguage = LangManager.getInstance().findLanguageFromName(config.getString("speakAsLanguage", Configuration.CATEGORY_GENERAL, "Japanese", "The language the user wants their message to translate to"));
@@ -119,90 +125,101 @@ public class ConfigManager {
         underline = config.getBoolean("underline", Configuration.CATEGORY_GENERAL, false, "Underline the translated message");
         color = config.getString("color", Configuration.CATEGORY_GENERAL, "gray", "Changes the color of the translated message");
         translateSign = config.getBoolean("translateSign", Configuration.CATEGORY_GENERAL, true, "Allows translating texts in sign by looking");
-        regexList = Arrays.asList(config.getStringList("regexList", Configuration.CATEGORY_GENERAL, defaultRegex, "Your regex list"));
-        groupList = Ints.asList(config.get(Configuration.CATEGORY_GENERAL, "groupList", defaultGroups, "Your match group number to detect player names").getIntList());
+        regexList = new ArrayList<>(Arrays.asList(config.getStringList("regexList", Configuration.CATEGORY_GENERAL, defaultRegex, "Your regex list")));
+        groupList = new ArrayList<>(Ints.asList(config.get(Configuration.CATEGORY_GENERAL, "groupList", defaultGroups, "Your match group number to detect player names").getIntList()));
+        
         translationEngine = config.getString("translationEngine", Configuration.CATEGORY_GENERAL, engines[0], "Translation engine used");
         googleKey = config.getString("googleKey", Configuration.CATEGORY_GENERAL, "", "Your Google Cloud translation API key");
         baiduKey = config.getString("baiduKey", Configuration.CATEGORY_GENERAL, "", "Your Baidu translation API key");
         baiduAppId = config.getString("baiduAppId", Configuration.CATEGORY_GENERAL, "", "Your Baidu developer app ID");
 
-        //Validations to prevent dumbasses messing with the mod config through notepad
-        //Only string validations are needed. Other primitives would be dealt with by forge
-        boolean valid = true;
+        boolean changed = false;
+
+        for (int i = 0; i < defaultRegex.length; i++) {
+            if (!regexList.contains(defaultRegex[i])) {
+                regexList.add(defaultRegex[i]);
+                groupList.add(defaultGroups[i]);
+                changed = true;
+            }
+        }
+
         if (targetLanguage == null) {
-            valid = false;
-            setTargetLanguage(LangManager.getInstance().findLanguageFromName("English"));
+            targetLanguage = LangManager.getInstance().findLanguageFromName("English");
+            config.get(Configuration.CATEGORY_GENERAL, "targetLanguage", "English", "Target language to translate for the chat").set("English");
+            changed = true;
         }
         if (selfLanguage == null) {
-            valid = false;
-            setSelfLanguage(LangManager.getInstance().findLanguageFromName("English"));
+            selfLanguage = LangManager.getInstance().findLanguageFromName("English");
+            config.get(Configuration.CATEGORY_GENERAL, "selfLanguage", "English", "The language the user types").set("English");
+            changed = true;
         }
         if (speakAsLanguage == null) {
-            valid = false;
-            setSpeakAsLanguage(LangManager.getInstance().findLanguageFromName("Japanese"));
+            speakAsLanguage = LangManager.getInstance().findLanguageFromName("Japanese");
+            config.get(Configuration.CATEGORY_GENERAL, "speakAsLanguage", "Japanese", "The language the user wants their message to translate to").set("Japanese");
+            changed = true;
         }
 
-        //Regex validation
-        Iterator<String> regexIt = regexList.iterator();
-        int index = 0;
-        while (regexIt.hasNext()) {
-            String regex = regexIt.next();
+        List<String> validRegexes = new ArrayList<>();
+        List<Integer> validGroups = new ArrayList<>();
+        compiledRegexList = new ArrayList<>();
+
+        for (int j = 0; j < regexList.size(); j++) {
+            String regex = regexList.get(j);
+            Integer group = groupList.get(j);
+            if (group < 0) {
+                changed = true;
+                continue;
+            }
             try {
-                //Apparently Java does not have a method to check if a regex is valid. The only to do this is to catch exceptions.
-                Pattern.compile(regex);
+                String regexFixed = regex.contains("^") ? regex : "^" + regex;
+                compiledRegexList.add(Pattern.compile(regexFixed));
+                validRegexes.add(regex);
+                validGroups.add(group);
             } catch (PatternSyntaxException e) {
-                valid = false;
-                regexIt.remove();
-                groupList.remove(index);
-                //-1 is needed as everything in the array is shifted left
-                index--;
+                changed = true;
             }
-            //Make sure the group number is not less than 0
-            if (groupList.get(index) < 0) {
-                valid = false;
-                regexIt.remove();
-                groupList.remove(index);
-                index--;
-            }
-            index++;
+        }
+        regexList = validRegexes;
+        groupList = validGroups;
+
+        List<String> validColors = new ArrayList<>(EnumChatFormatting.getValidValues(true, false));
+        if (!validColors.contains(color)) {
+            color = "gray";
+            config.get(Configuration.CATEGORY_GENERAL, "color", "gray", "Changes the color of the translated message").set("gray");
+            changed = true;
         }
 
-        //Validates the color.
-        @SuppressWarnings({"rawtypes"})
-        ArrayList colors = new ArrayList<>(EnumChatFormatting.getValidValues(true, false));
-        if (!colors.contains(color)) {
-            color = "gray";
-            valid = false;
-        }
-        if (!valid) {
-            setRegexList(regexList);
-            setGroupList(groupList);
-            config.save();
-            syncConfig();
-        }
         if (!Arrays.asList(engines).contains(translationEngine)) {
-            setTranslationEngine(engines[0]);
+            translationEngine = engines[0];
+            config.get(Configuration.CATEGORY_GENERAL, "translationEngine", engines[0], "Translation engine used").set(engines[0]);
+            changed = true;
         }
-        config.save();
+
+        if (changed) {
+            config.get(Configuration.CATEGORY_GENERAL, "regexList", defaultRegex, "Your regex list").set(regexList.toArray(new String[0]));
+            config.get(Configuration.CATEGORY_GENERAL, "groupList", defaultGroups, "Your match group number to detect player names").set(Ints.toArray(groupList));
+        }
+        
+        if (config.hasChanged() || changed) {
+            config.save();
+        }
     }
 
     private void versionCheck() {
         Property prop = config.get(Configuration.CATEGORY_GENERAL, "configVersion", 0, "Config version check to ensure nothing's outdated");
-        int configVersion = prop.getInt();
-        //In case there might be any major updates that would break under existing configs, this is here to reset everything.
-        if (configMinVersion > configVersion) {
-            setTargetLanguage(LangManager.getInstance().findLanguageFromName("English"));
-            setSelfLanguage(LangManager.getInstance().findLanguageFromName("English"));
-            setSpeakAsLanguage(LangManager.getInstance().findLanguageFromName("Japanese"));
-            setBold(false);
-            setItalic(false);
-            setUnderline(false);
-            setTranslateSign(true);
-            setColor("gray");
-            setRegexList(Arrays.asList(defaultRegex));
-            setGroupList(Ints.asList(defaultGroups));
+        if (configMinVersion > prop.getInt()) {
+            config.get(Configuration.CATEGORY_GENERAL, "targetLanguage", "English", "Target language to translate for the chat").set("English");
+            config.get(Configuration.CATEGORY_GENERAL, "selfLanguage", "English", "The language the user types").set("English");
+            config.get(Configuration.CATEGORY_GENERAL, "speakAsLanguage", "Japanese", "The language the user wants their message to translate to").set("Japanese");
+            config.get(Configuration.CATEGORY_GENERAL, "bold", false, "Bold the translated message").set(false);
+            config.get(Configuration.CATEGORY_GENERAL, "italic", false, "Italic the translated message").set(false);
+            config.get(Configuration.CATEGORY_GENERAL, "underline", false, "Underline the translated message").set(false);
+            config.get(Configuration.CATEGORY_GENERAL, "translateSign", true, "Allows translating texts in sign by looking").set(true);
+            config.get(Configuration.CATEGORY_GENERAL, "color", "gray", "Changes the color of the translated message").set("gray");
+            config.get(Configuration.CATEGORY_GENERAL, "regexList", defaultRegex, "Your regex list").set(defaultRegex);
+            config.get(Configuration.CATEGORY_GENERAL, "groupList", defaultGroups, "Your match group number to detect player names").set(defaultGroups);
+            config.get(Configuration.CATEGORY_GENERAL, "translationEngine", engines[0], "Translation engine used").set(engines[0]);
             prop.set(configMinVersion);
-            setTranslationEngine(engines[0]);
         }
     }
 
