@@ -38,6 +38,7 @@ public class ConfigManager {
     public static final String[] defaultRegex = {
             "<(\\w+)> ", //Default
             " ?\\[\\d+\\](?: \\S+)? \\[[A-Za-z+]+\\] (\\w+)(?: \\S+)?: ", //Fakepixel
+            "From (?:\\S+ )?(?:\\[[A-Za-z+]+\\] )?(\\w+) to Me: ", //Fakepixel PM
             "\\(From (\\w+)\\):( )?", //PM
             "(\\w+) whispers ", //PM
             "(\\[\\S+\\]( )?){0,2}(\\w+)( )?\u00BB( )?", //The Hive, etc.
@@ -59,6 +60,7 @@ public class ConfigManager {
 
     };
     public static final int[] defaultGroups = {
+            1,
             1,
             1,
             1,
